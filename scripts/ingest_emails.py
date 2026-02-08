@@ -80,7 +80,12 @@ def main():
         print("\n" + "="*50)
         print("PINECONE INDEX STATISTICS")
         print("="*50)
-        print(json.dumps(stats, indent=2))
+        # Convert to dict if needed
+        if hasattr(stats, 'to_dict'):
+            stats = stats.to_dict()
+        elif not isinstance(stats, dict):
+            stats = dict(stats)
+        print(json.dumps(stats, indent=2, default=str))
         return
     
     # Run ingestion
