@@ -1,5 +1,6 @@
 # Core RAG Dependencies
 anthropic>=0.39.0                  # Claude API
+openai>=1.54.0                     # OpenAI API
 pinecone>=5.0.0                    # Pinecone vector database (renamed from pinecone-client)
 sentence-transformers>=3.3.1       # Local embeddings
 torch>=2.5.1                       # PyTorch (for sentence-transformers)
