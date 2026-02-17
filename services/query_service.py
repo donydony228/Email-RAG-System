@@ -1,9 +1,10 @@
 # 創建 services/query_service.py 實現以下功能：
 
 from dotenv import load_dotenv
-from sentence_transformers import SentenceTransformer
 from pinecone import Pinecone
 import os
+import sys
+import contextlib
 
 # Load environment variables
 load_dotenv()
@@ -13,20 +14,29 @@ INDEX_NAME = "email-rag-search"
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 index = pc.Index(INDEX_NAME)
 
+_model = None  # Lazy-loaded model cache
+
 def embed_query(query: str) -> list:
     """
-    Embed a query string into a vector representation.  
+    Embed a query string into a vector representation.
     Args:
         query (str): The query text to be embedded.
     Returns:
         list: The embedded query as a list of floats.
     """
-    model = SentenceTransformer(MODEL_NAME)
+    global _model
+    if _model is None:
+        from sentence_transformers import SentenceTransformer
+        with open(os.devnull, 'w') as devnull, \
+             contextlib.redirect_stdout(devnull), \
+             contextlib.redirect_stderr(devnull):
+            _model = SentenceTransformer(MODEL_NAME)
+    model = _model
 
     queries = model.encode(
             query,
             batch_size=32,
-            show_progress_bar=True,
+            show_progress_bar=False,
             convert_to_numpy=True,
             normalize_embeddings=True  # For cosine similarity
         ).tolist()

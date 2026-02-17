@@ -42,3 +42,7 @@ google-api-python-client
 slack-sdk
 fastapi
 uvicorn
+
+# Evaluation
+ragas>=0.4.0                       # RAG evaluation framework (v0.4+ API)
+datasets>=2.14.0                   # Required by RAGAS

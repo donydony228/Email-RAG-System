@@ -62,10 +62,7 @@ experiments/results/
 experiments/logs/
 
 # Data files (uncomment if you don't want to track data)
-# data/raw/
-# data/processed/
-# data/external/
-data/temp/
+data/
 
 # Jupyter Notebooks
 .ipynb_checkpoints/
