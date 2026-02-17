@@ -2,7 +2,7 @@
 RAG evaluation using RAGAS framework.
 
 Run from project root:
-    python scripts/test_ragas_simple.py
+    python scripts/ragas_evaluation.py
 """
 
 import sys
@@ -33,23 +33,19 @@ from services.rag_service import ask
 
 
 EVAL_QUESTIONS = [
-    # 1. Fact Retrieval (Information Extraction)
-    "What are the check-in and check-out dates and times for the Airbnb stay at 'Diva sonata no.7'?",
-    "What is the total amount paid to Anthropic, and what is the specific receipt number for this transaction?",
-    "What is the one-time passcode (OTP) sent by Acer Group, and how long is it valid for?",
-    "這個帳號的擁有者叫什麼名字？"
-
-    # 2. Semantic & Intent Search
-    # "Have I received any updates regarding my job applications or internship status recently?",
-    # "Are there any notifications indicating that an automated workflow or script failed to run?",
-    # "What is the upcoming career event at NYU, and does it mention any specific perks for attendees?",
-
-    # 3. Complex Reasoning & Technical Context
-    # "Regarding the DS-GA 1003 course, what specific technical issue did a student report about Problem Set 2, and what step size (eta) did they suggest using instead?",
-    # "Based on my recent billing emails, which AI service am I currently subscribed to, and what is the active billing period?",
-    # "Summarize my schedule for the upcoming week based on my accommodation bookings and university events."
+    {
+        "question": "What is the general check-in and check-out dates and times for the Airbnb stay at 'Diva sonata no.7'?",
+        "ground_truth": "Check-in: 16:00, Check-out: 11:00"
+    },
+    {
+        "question": "What is the monthly amount paid to Anthropic?",
+        "ground_truth": "Monthly amount: $20"
+    },
+    {
+        "question": "Who is Vera Kang? I remembered she is a HR from a tech company",
+        "ground_truth": "Vera Kang is a HR from Entegris, who contacted me regarding my job application."
+    }
 ]
-
 
 async def evaluate_questions():
     client = AsyncOpenAI()
@@ -63,9 +59,13 @@ async def evaluate_questions():
 
     all_results = []
 
-    for i, question in enumerate(EVAL_QUESTIONS, 1):
+    for i, item in enumerate(EVAL_QUESTIONS, 1):
+        question = item["question"]
+        ground_truth = item["ground_truth"]
+
         print(f"\n{'='*60}")
         print(f"[{i}/{len(EVAL_QUESTIONS)}] Q: {question}")
+        print(f"Expected: {ground_truth}")
         print('='*60)
 
         response = ask(
@@ -93,12 +93,12 @@ async def evaluate_questions():
         print("Scores:")
         result_precision = await context_precision.ascore(
             user_input=question,
-            reference=answer,
+            reference=ground_truth,
             retrieved_contexts=contexts,
         )
         result_recall = await context_recall.ascore(
             user_input=question,
-            reference=answer,
+            reference=ground_truth,
             retrieved_contexts=contexts,
         )
         result_relevancy = await answer_relevancy.ascore(
@@ -123,6 +123,7 @@ async def evaluate_questions():
 
         all_results.append({
             "Question": question,
+            "Ground_Truth": ground_truth,
             "Answer": answer,
             "Context_Precision": result_precision.value,
             "Context_Recall": result_recall.value,
