@@ -22,10 +22,12 @@ load_dotenv()
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from services.ingestion_pipeline import EmailIngestionPipeline
+from services.sync_time import load_last_sync, save_last_sync
 import json
 
 
 def main():
+    last_time = load_last_sync()
     parser = argparse.ArgumentParser(
         description="Ingest emails from Gmail into Pinecone vector database"
     )
