@@ -5,6 +5,13 @@ import json
 import base64
 from pathlib import Path
 
+def safe_b64decode(s: str) -> bytes:
+    """Decode base64, handling missing padding from copy-paste or Secrets trimming."""
+    s = s.strip()
+    s += '=' * (-len(s) % 4)
+    return base64.b64decode(s)
+
+
 def init_credentials():
     """從環境變數初始化 credentials 文件"""
 
@@ -26,7 +33,7 @@ def init_credentials():
 
             if cred_base64:
                 try:
-                    cred_data = base64.b64decode(cred_base64)
+                    cred_data = safe_b64decode(cred_base64)
                     cred_file = credentials_dir / f'credentials_account{i}.json'
                     cred_file.write_bytes(cred_data)
                     print(f"已創建 {cred_file} ({len(cred_data)} bytes)")
@@ -35,7 +42,7 @@ def init_credentials():
 
             if token_base64:
                 try:
-                    token_data = base64.b64decode(token_base64)
+                    token_data = safe_b64decode(token_base64)
                     token_file = credentials_dir / f'token_account{i}.json'
                     token_file.write_bytes(token_data)
                     print(f"已創建 {token_file} ({len(token_data)} bytes)")
@@ -54,7 +61,7 @@ def init_credentials():
 
         if cred_base64:
             try:
-                cred_data = base64.b64decode(cred_base64)
+                cred_data = safe_b64decode(cred_base64)
                 cred_file = credentials_dir / 'credentials.json'
                 cred_file.write_bytes(cred_data)
                 print(f"已創建 {cred_file} ({len(cred_data)} bytes)")
@@ -63,7 +70,7 @@ def init_credentials():
 
         if token_base64:
             try:
-                token_data = base64.b64decode(token_base64)
+                token_data = safe_b64decode(token_base64)
                 token_file = credentials_dir / 'token.json'
                 token_file.write_bytes(token_data)
                 print(f"已創建 {token_file} ({len(token_data)} bytes)")
