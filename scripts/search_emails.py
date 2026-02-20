@@ -23,7 +23,7 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from services.query_service import embed_query, search, filter_by_metadata, format_results
+from services.query_service import embed_query, search, format_results
 
 
 def search_emails(
@@ -50,29 +50,26 @@ def search_emails(
     print("="*60 + "\n")
 
     # Step 1: Embed the query
-    print("[1/3] Embedding query...")
+    print("[1/2] Embedding query...")
     query_vector = embed_query(query)
     print(f"      ✓ Query embedded as {len(query_vector)}-dimensional vector")
 
-    # Step 2: Search in Pinecone
-    print(f"[2/3] Searching in Pinecone (top_k={top_k})...")
-    results = search(query_vector, top_k=top_k)
-    print(f"      ✓ Found {len(results['matches'])} results from Pinecone")
+    # Build server-side metadata filter for Pinecone
+    pinecone_filter = {}
+    if account:
+        pinecone_filter["account"] = {"$eq": account}
+    if from_email:
+        pinecone_filter["from"] = {"$eq": from_email}
+    if to_email:
+        pinecone_filter["to"] = {"$eq": to_email}
+    if date:
+        pinecone_filter["date"] = {"$eq": date}
 
-    # Step 3: Apply metadata filters if specified
-    if any([account, from_email, to_email, date]):
-        print("[3/3] Applying filters...")
-        filtered_matches = filter_by_metadata(
-            results,
-            account=account,
-            froms=from_email,
-            tos=to_email,
-            date=date
-        )
-        results['matches'] = filtered_matches
-        print(f"      ✓ Found {len(results['matches'])} results after filtering")
-    else:
-        print("[3/3] No filters applied")
+    # Step 2: Search in Pinecone (with server-side filters if specified)
+    filter_note = f", {len(pinecone_filter)} filter(s)" if pinecone_filter else ""
+    print(f"[2/2] Searching in Pinecone (top_k={top_k}{filter_note})...")
+    results = search(query_vector, top_k=top_k, filter=pinecone_filter if pinecone_filter else None)
+    print(f"      ✓ Found {len(results['matches'])} results from Pinecone")
 
     print("\n" + "="*60)
     print("Search Results")

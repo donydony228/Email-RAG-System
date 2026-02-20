@@ -8,7 +8,7 @@ This service orchestrates the complete RAG pipeline:
 """
 
 from typing import Dict, Optional
-from services.query_service import embed_query, search, filter_by_metadata
+from services.query_service import embed_query, search
 from services.claude_service import ask_with_emails
 
 
@@ -58,30 +58,24 @@ def ask(
     if verbose:
         print(f"      ✓ Query embedded as {len(query_vector)}-dimensional vector\n")
 
+    # Build server-side metadata filter for Pinecone
+    pinecone_filter = {}
+    if account:
+        pinecone_filter["account"] = {"$eq": account}
+    if from_email:
+        pinecone_filter["from"] = {"$eq": from_email}
+    if to_email:
+        pinecone_filter["to"] = {"$eq": to_email}
+    if date:
+        pinecone_filter["date"] = {"$eq": date}
+
     # Step 2: Retrieve from Pinecone
     if verbose:
-        print(f"[2/3] Searching in Pinecone (top_k={top_k})...")
-    results = search(query_vector, top_k=top_k)
+        filter_note = f", {len(pinecone_filter)} filter(s)" if pinecone_filter else ""
+        print(f"[2/3] Searching in Pinecone (top_k={top_k}{filter_note})...")
+    results = search(query_vector, top_k=top_k, filter=pinecone_filter if pinecone_filter else None)
     if verbose:
-        print(f"      ✓ Found {len(results['matches'])} results from Pinecone")
-
-    # Apply filters if specified
-    if any([account, from_email, to_email, date]):
-        if verbose:
-            print("      ✓ Applying metadata filters...")
-        filtered_matches = filter_by_metadata(
-            results,
-            account=account,
-            froms=from_email,
-            tos=to_email,
-            date=date
-        )
-        results['matches'] = filtered_matches
-        if verbose:
-            print(f"      ✓ {len(results['matches'])} results after filtering\n")
-    else:
-        if verbose:
-            print()
+        print(f"      ✓ Found {len(results['matches'])} results from Pinecone\n")
 
     # Step 3: Generate answer with OpenAI
     if verbose:

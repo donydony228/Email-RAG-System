@@ -42,19 +42,21 @@ def embed_query(query: str) -> list:
         ).tolist()
     return queries
 
-def search(queries: list, top_k: int = 5) -> dict:
+def search(queries: list, top_k: int = 5, filter: dict = None) -> dict:
     """
     Search the Pinecone index with the given query vectors.
     Args:
         queries (list): The list of query vectors.
         top_k (int): The number of top results to return.
+        filter (dict): Pinecone metadata filter (server-side), e.g. {"account": {"$eq": "個人信箱"}}.
     Returns:
         dict: The search results from Pinecone.
     """
     results = index.query(
         vector=queries,
         top_k=top_k,
-        include_metadata=True
+        include_metadata=True,
+        filter=filter if filter else None
     )
     return results
 
