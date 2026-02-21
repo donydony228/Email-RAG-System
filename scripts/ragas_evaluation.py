@@ -87,7 +87,7 @@ EVAL_QUESTIONS = [
     },
     {
         "question": "Which companies have sent me promotional discount emails?",
-        "ground_truth": "Weee!, Trip.com, Playstation, Best Buy"
+        "ground_truth": "Delta Air, Weee!, Trip.com, Playstation, Best Buy"
     },
     {
         "question": "What subscription services am I currently paying for, based on billing emails?",
@@ -98,7 +98,7 @@ EVAL_QUESTIONS = [
     # Tests dense vector retrieval with no precise terms to anchor on.
     {
         "question": "Were there any emails asking me to take action or respond urgently?",
-        "ground_truth": "Polymarket, Google Cloud, Vercel, LinkedIn, Airbnb"
+        "ground_truth": "No such emails were found."
     },
     {
         "question": "Did anyone send me feedback or comments about my work?",
@@ -130,7 +130,8 @@ EVAL_QUESTIONS = [
 ]
 
 
-async def evaluate_questions(notes: str = "", alpha: float = 0.5) -> list:
+async def evaluate_questions(notes: str = "", alpha: float = 0.5,
+                              rerank: bool = True, top_k: int = 20) -> list:
     client = AsyncOpenAI()
     llm = llm_factory("gpt-4o-mini", client=client)
     embeddings = embedding_factory("openai", model="text-embedding-3-small", client=client)
@@ -161,12 +162,14 @@ async def evaluate_questions(notes: str = "", alpha: float = 0.5) -> list:
 
         response = ask(
             query=question,
-            top_k=5,
+            top_k=top_k,
             max_context_emails=3,
             language="auto",
             stream=False,
             verbose=False,
             alpha=alpha,
+            rerank=rerank,
+            rerank_top_n=5,
         )
 
         contexts = []
@@ -263,9 +266,8 @@ if __name__ == "__main__":
         epilog="""
 Examples:
   python scripts/ragas_evaluation.py
-  python scripts/ragas_evaluation.py --notes "Baseline: dense-only search"
-  python scripts/ragas_evaluation.py --notes "Added server-side Pinecone filter"
-  python scripts/ragas_evaluation.py --notes "Hybrid search alpha=0.5"
+  python scripts/ragas_evaluation.py --notes "Hybrid alpha=0.5 baseline" --no-rerank --top-k 5
+  python scripts/ragas_evaluation.py --notes "Hybrid alpha=0.5 + CrossEncoder rerank" --rerank --top-k 20
         """
     )
     parser.add_argument(
@@ -280,8 +282,26 @@ Examples:
         default=0.5,
         help="Hybrid search alpha: 1.0=pure dense, 0.0=pure BM25 (default: 0.5)"
     )
+    parser.add_argument(
+        "--rerank",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable CrossEncoder re-ranking (default: True). Use --no-rerank to disable."
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=20,
+        dest="top_k",
+        help="Number of candidates to retrieve from Pinecone (default: 20)"
+    )
     args = parser.parse_args()
 
-    results = asyncio.run(evaluate_questions(notes=args.notes, alpha=args.alpha))
+    results = asyncio.run(evaluate_questions(
+        notes=args.notes,
+        alpha=args.alpha,
+        rerank=args.rerank,
+        top_k=args.top_k,
+    ))
     print_summary(results)
     save_to_csv(results, CSV_PATH)

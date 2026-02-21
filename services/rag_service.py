@@ -14,7 +14,7 @@ from services.claude_service import ask_with_emails
 
 def ask(
     query: str,
-    top_k: int = 5,
+    top_k: int = 20,
     account: Optional[str] = None,
     from_email: Optional[str] = None,
     to_email: Optional[str] = None,
@@ -24,6 +24,8 @@ def ask(
     stream: bool = False,
     verbose: bool = True,
     alpha: float = 0.5,
+    rerank: bool = True,
+    rerank_top_n: int = 5
 ) -> Dict:
     """
     Ask a question about your emails using RAG.
@@ -39,6 +41,8 @@ def ask(
         language: Response language ("zh", "en", or "auto")
         stream: Enable streaming response
         verbose: Print progress information
+        rerank: Whether to re-rank results using a CrossEncoder
+        rerank_top_n: Number of top results to retain after re-ranking
 
     Returns:
         Dictionary containing:
@@ -76,7 +80,12 @@ def ask(
         print(f"[2/3] Searching in Pinecone (top_k={top_k}{filter_note})...")
     results = search(query, query_vector, top_k=top_k, filter=pinecone_filter if pinecone_filter else None, alpha=alpha)
     if verbose:
-        print(f"      ✓ Found {len(results['matches'])} results from Pinecone\n")
+        print(f"Found {len(results['matches'])} results from Pinecone\n")
+
+    # Step 2.5: Re-rank candidates
+    if rerank and results["matches"]:
+        from services.rerank_service import rerank as rerank_matches
+        results["matches"] = rerank_matches(query, results["matches"], top_n=rerank_top_n)
 
     # Step 3: Generate answer with OpenAI
     if verbose:
@@ -91,7 +100,7 @@ def ask(
     )
 
     if verbose and not stream:
-        print("      ✓ Answer generated\n")
+        print("Answer generated\n")
 
     # Combine results
     return {
@@ -123,9 +132,9 @@ def format_rag_response(response: Dict, show_sources: bool = True) -> None:
 
         for i, source in enumerate(response['sources'], 1):
             print(f"[{i}] {source['subject']}")
-            print(f"    From: {source['from']}")
-            print(f"    Date: {source['date']}")
-            print(f"    Similarity: {source['similarity']:.2%}")
+            print(f"From: {source['from']}")
+            print(f"Date: {source['date']}")
+            print(f"Similarity: {source['similarity']:.2%}")
             print()
 
     print("=" * 60)
