@@ -11,7 +11,7 @@ import time
 # Configuration
 INDEX_NAME = "email-rag-search"
 DIMENSION = 768
-METRIC = "cosine"
+METRIC = "dotproduct"  # Required for hybrid search (sparse + dense); cosine does not support sparse_values
 BATCH_SIZE = 100
 
 class PineconeService:
@@ -63,23 +63,28 @@ class PineconeService:
             'labels': ','.join(metadata.get('labels', [])),
         }
     
-    def prepare_for_pinecone(self, docs: List[Dict]) -> List[tuple]:
-        """Convert documents to Pinecone format."""
+    def prepare_for_pinecone(self, docs: List[Dict]) -> List[Dict]:
+        """Convert documents to Pinecone format (dict with optional sparse_values)."""
         pinecone_data = []
-        
+
         for doc in docs:
             metadata = self.optimize_metadata(
                 doc['metadata'],
                 doc['content']
             )
-            
-            pinecone_vector = (
-                doc['id'],
-                doc['embedding'],
-                metadata
-            )
+
+            pinecone_vector = {
+                "id": doc['id'],
+                "values": doc['embedding'],
+                "metadata": metadata,
+            }
+
+            # Include sparse vector when available (hybrid search)
+            if doc.get('sparse_embedding'):
+                pinecone_vector["sparse_values"] = doc['sparse_embedding']
+
             pinecone_data.append(pinecone_vector)
-        
+
         return pinecone_data
     
     def upsert(
@@ -119,7 +124,7 @@ class PineconeService:
                 total_uploaded += response['upserted_count']
             except Exception as e:
                 print(f"Error uploading batch: {e}")
-                failed_ids.extend([vec[0] for vec in batch])
+                failed_ids.extend([vec["id"] for vec in batch])
         
         return {
             'total_uploaded': total_uploaded,

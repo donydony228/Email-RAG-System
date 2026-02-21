@@ -1,11 +1,20 @@
 # Embedding service to generate embeddings for chunked email documents
 
-from sentence_transformers import SentenceTransformer
+from pathlib import Path
+from pinecone_text.sparse import BM25Encoder
 from typing import List, Dict
-import numpy as np
 
 # Reuse the model from email_chunker
 from services.email_chunker import get_model, MODEL_NAME
+
+# Load pre-trained BM25 model (absolute path — safe regardless of CWD)
+_BM25_MODEL_PATH = Path(__file__).parent.parent / "data" / "bm25_model.json"
+if not _BM25_MODEL_PATH.exists():
+    raise FileNotFoundError(
+        f"BM25 model not found at {_BM25_MODEL_PATH}. "
+        "Run: python scripts/train_bm25.py"
+    )
+bm25 = BM25Encoder().load(str(_BM25_MODEL_PATH))
 
 def generate_embeddings(
     chunked_emails: List[Dict],
@@ -38,12 +47,16 @@ def generate_embeddings(
         normalize_embeddings=True  # For cosine similarity
     )
     
+    # Generate sparse embeddings (BM25) for hybrid search
+    sparse_embeddings = bm25.encode_documents(contents)
+
     # Add embeddings to documents
     docs_with_embeddings = []
-    for email, embedding in zip(chunked_emails, embeddings):
+    for email, embedding, sparse_embedding in zip(chunked_emails, embeddings, sparse_embeddings):
         docs_with_embeddings.append({
             **email,
-            'embedding': embedding.tolist()  # Convert numpy to list for JSON
+            'embedding': embedding.tolist(),      # dense vector
+            'sparse_embedding': sparse_embedding, # {"indices": [...], "values": [...]}
         })
-    
+
     return docs_with_embeddings

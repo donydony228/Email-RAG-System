@@ -36,5 +36,8 @@ jobs:
       - name: Initialize Gmail credentials
         run: python init_credentials.py
 
+      - name: Train BM25 model from Pinecone corpus
+        run: python scripts/train_bm25.py
+
       - name: Run email ingestion
         run: python scripts/ingest_emails.py --time-range 1d --max-emails 500

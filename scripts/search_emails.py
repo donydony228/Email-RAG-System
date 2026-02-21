@@ -68,7 +68,7 @@ def search_emails(
     # Step 2: Search in Pinecone (with server-side filters if specified)
     filter_note = f", {len(pinecone_filter)} filter(s)" if pinecone_filter else ""
     print(f"[2/2] Searching in Pinecone (top_k={top_k}{filter_note})...")
-    results = search(query_vector, top_k=top_k, filter=pinecone_filter if pinecone_filter else None)
+    results = search(query, query_vector, top_k=top_k, filter=pinecone_filter if pinecone_filter else None)
     print(f"      ✓ Found {len(results['matches'])} results from Pinecone")
 
     print("\n" + "="*60)

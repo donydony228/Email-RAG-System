@@ -22,7 +22,8 @@ def ask(
     max_context_emails: int = 3,
     language: str = "auto",
     stream: bool = False,
-    verbose: bool = True
+    verbose: bool = True,
+    alpha: float = 0.5,
 ) -> Dict:
     """
     Ask a question about your emails using RAG.
@@ -73,7 +74,7 @@ def ask(
     if verbose:
         filter_note = f", {len(pinecone_filter)} filter(s)" if pinecone_filter else ""
         print(f"[2/3] Searching in Pinecone (top_k={top_k}{filter_note})...")
-    results = search(query_vector, top_k=top_k, filter=pinecone_filter if pinecone_filter else None)
+    results = search(query, query_vector, top_k=top_k, filter=pinecone_filter if pinecone_filter else None, alpha=alpha)
     if verbose:
         print(f"      ✓ Found {len(results['matches'])} results from Pinecone\n")
 
