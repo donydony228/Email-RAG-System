@@ -54,6 +54,7 @@ class PineconeService:
             'from': metadata.get('from', ''),
             'to': metadata.get('to', ''),
             'date': metadata.get('date', ''),
+            'timestamp': metadata.get('timestamp', 0),
             'message_id': metadata.get('message_id', ''),
             'thread_id': metadata.get('thread_id', ''),
             'chunk_index': metadata.get('chunk_index', 0),

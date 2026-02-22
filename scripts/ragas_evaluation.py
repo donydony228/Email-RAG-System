@@ -109,11 +109,11 @@ EVAL_QUESTIONS = [
     # Tests whether retrieval works correctly with temporal context.
     {
         "question": "What is the most recent newsletter I received?",
-        "ground_truth": f"Based on current time: {current_time}"
+        "ground_truth": f"Based on current time: {current_time}, the latest emails should be one day behind."
     },
     {
         "question": "What were the last travel-related emails I received?",
-        "ground_truth": f"Based on current time: {current_time}"
+        "ground_truth": f"Based on current time: {current_time}, the latest emails should be one day behind."
     },
 
     # --- Non-existent Information (Faithfulness) ---
@@ -131,7 +131,8 @@ EVAL_QUESTIONS = [
 
 
 async def evaluate_questions(notes: str = "", alpha: float = 0.5,
-                              rerank: bool = True, top_k: int = 20) -> list:
+                              rerank: bool = True, top_k: int = 20,
+                              temporal_ranking=None) -> list:
     client = AsyncOpenAI()
     llm = llm_factory("gpt-4o-mini", client=client)
     embeddings = embedding_factory("openai", model="text-embedding-3-small", client=client)
@@ -170,6 +171,7 @@ async def evaluate_questions(notes: str = "", alpha: float = 0.5,
             alpha=alpha,
             rerank=rerank,
             rerank_top_n=5,
+            temporal_ranking=temporal_ranking,
         )
 
         contexts = []
@@ -268,6 +270,8 @@ Examples:
   python scripts/ragas_evaluation.py
   python scripts/ragas_evaluation.py --notes "Hybrid alpha=0.5 baseline" --no-rerank --top-k 5
   python scripts/ragas_evaluation.py --notes "Hybrid alpha=0.5 + CrossEncoder rerank" --rerank --top-k 20
+  python scripts/ragas_evaluation.py --notes "Temporal ranking (auto-detect)" --no-rerank --top-k 5
+  python scripts/ragas_evaluation.py --notes "Temporal ranking (forced)" --no-rerank --top-k 5 --temporal-ranking
         """
     )
     parser.add_argument(
@@ -295,6 +299,17 @@ Examples:
         dest="top_k",
         help="Number of candidates to retrieve from Pinecone (default: 20)"
     )
+    parser.add_argument(
+        "--temporal-ranking",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        dest="temporal_ranking",
+        help=(
+            "Temporal ranking: sort results by date for recency queries. "
+            "Default (None) = auto-detect from query keywords. "
+            "Use --temporal-ranking to force on, --no-temporal-ranking to force off."
+        )
+    )
     args = parser.parse_args()
 
     results = asyncio.run(evaluate_questions(
@@ -302,6 +317,7 @@ Examples:
         alpha=args.alpha,
         rerank=args.rerank,
         top_k=args.top_k,
+        temporal_ranking=args.temporal_ranking,
     ))
     print_summary(results)
     save_to_csv(results, CSV_PATH)

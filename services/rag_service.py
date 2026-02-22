@@ -25,7 +25,8 @@ def ask(
     verbose: bool = True,
     alpha: float = 0.5,
     rerank: bool = True,
-    rerank_top_n: int = 5
+    rerank_top_n: int = 5,
+    temporal_ranking: Optional[bool] = None
 ) -> Dict:
     """
     Ask a question about your emails using RAG.
@@ -43,6 +44,7 @@ def ask(
         verbose: Print progress information
         rerank: Whether to re-rank results using a CrossEncoder
         rerank_top_n: Number of top results to retain after re-ranking
+        temporal_ranking: None=auto-detect from query keywords, True=force on, False=force off
 
     Returns:
         Dictionary containing:
@@ -63,6 +65,19 @@ def ask(
     if verbose:
         print(f"      ✓ Query embedded as {len(query_vector)}-dimensional vector\n")
 
+    # Detect temporal intent early (before search) so we can inject a date filter.
+    # Two-tier detection: strict keywords for filter (high cost on misfire),
+    # broad keywords for sort (low cost on misfire).
+    from services.temporal_service import (
+        detect_temporal_query, detect_filter_query, build_recency_filter, sort_by_date
+    )
+    if temporal_ranking is None:
+        _use_filter = detect_filter_query(query)   # strict: only unambiguous temporal terms
+        _use_sort   = detect_temporal_query(query) # broad: includes \blast\b etc.
+    else:
+        _use_filter = bool(temporal_ranking)
+        _use_sort   = bool(temporal_ranking)
+
     # Build server-side metadata filter for Pinecone
     pinecone_filter = {}
     if account:
@@ -74,9 +89,18 @@ def ask(
     if date:
         pinecone_filter["date"] = {"$eq": date}
 
+    # For high-confidence temporal queries, add a server-side recency filter (last 30 days)
+    # so Pinecone only returns recent emails before semantic ranking.
+    if _use_filter:
+        pinecone_filter.update(build_recency_filter(days=30))
+
     # Step 2: Retrieve from Pinecone
     if verbose:
         filter_note = f", {len(pinecone_filter)} filter(s)" if pinecone_filter else ""
+        if _use_filter:
+            filter_note += " [+recency filter]"
+        elif _use_sort:
+            filter_note += " [+sort]"
         print(f"[2/3] Searching in Pinecone (top_k={top_k}{filter_note})...")
     results = search(query, query_vector, top_k=top_k, filter=pinecone_filter if pinecone_filter else None, alpha=alpha)
     if verbose:
@@ -86,6 +110,12 @@ def ask(
     if rerank and results["matches"]:
         from services.rerank_service import rerank as rerank_matches
         results["matches"] = rerank_matches(query, results["matches"], top_n=rerank_top_n)
+
+    # Step 2.8: Sort by date (newest first) for temporal queries
+    if (_use_sort or _use_filter) and results["matches"]:
+        results["matches"] = sort_by_date(results["matches"])
+        if verbose:
+            print(f"      ✓ Temporal sort applied (most recent first)\n")
 
     # Step 3: Generate answer with OpenAI
     if verbose:

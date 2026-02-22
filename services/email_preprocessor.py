@@ -3,6 +3,16 @@ Preprocess email content by cleaning and formatting.
 """
 
 import re
+from email.utils import parsedate_to_datetime
+
+
+def _parse_timestamp(date_str: str) -> int:
+    """Convert RFC 2822 date string to Unix epoch seconds (int). Returns 0 on failure."""
+    try:
+        return int(parsedate_to_datetime(date_str).timestamp())
+    except Exception:
+        return 0
+
 
 def clean(text: str) -> str:
     """
@@ -45,6 +55,7 @@ def format_email(emails: list[dict]) -> list[dict]:
                 'from': email['from'],
                 'to': email['to'],
                 'date': email['date'],
+                'timestamp': _parse_timestamp(email['date']),
                 'message_id': email['id'],
                 'thread_id': email['thread_id'],
                 'labels': email['labels'],
