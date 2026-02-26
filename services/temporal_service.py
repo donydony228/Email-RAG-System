@@ -51,8 +51,12 @@ _FILTER_KEYWORDS = [
 _SORT_KEYWORDS = _FILTER_KEYWORDS + [
     # Chinese — slightly ambiguous (最後 can mean "finally"; 上一封 = "previous email")
     r"最後", r"上一封",
-    # English — ambiguous (\blast\b also matches "recruiter last contacted me")
-    r"\blast\b",
+    # English — ambiguous, but acceptable for sort-only mode.
+    # Negative lookahead excludes "last [verb]ed me" patterns (e.g. "last contacted me",
+    # "last emailed me") where 'last' is an adverb describing timing of someone's action,
+    # not a recency qualifier for a noun.  False-positive cost for sort is still low,
+    # but Q8 "recruiter last contacted me" was causing a measurable Named Entity regression.
+    r"\blast\b(?!\s+(?:contacted|emailed|reached|messaged|wrote)\b)",
 ]
 
 _FILTER_PATTERN = re.compile("|".join(_FILTER_KEYWORDS), re.IGNORECASE)

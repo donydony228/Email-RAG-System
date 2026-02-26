@@ -1,74 +1,37 @@
 # Email chunker service
 
-from sentence_transformers import SentenceTransformer
+import tiktoken
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# Settings for Sentence Transformers
-MODEL_NAME = "paraphrase-multilingual-mpnet-base-v2"
+# tiktoken cl100k_base is used by text-embedding-3-small
+_tokenizer = tiktoken.get_encoding("cl100k_base")
 
-# Configuration
-MAX_TOKENS = 128
-CHUNK_SIZE = 100
-CHUNK_OVERLAP = 20
+# Configuration — sized for text-embedding-3-small (max 8192 tokens per input).
+# Larger than the old 128-token limit: more context per retrieval unit.
+MAX_TOKENS = 300
+CHUNK_SIZE = 300
+CHUNK_OVERLAP = 30
 
-# Global variables for lazy loading
-_model = None
-_tokenizer = None
-
-def get_model():
-    """
-    Get the Sentence Transformer model with lazy loading.
-
-    The model is only loaded on first use, not on module import.
-    Subsequent calls return the cached model instance.
-
-    Returns:
-        SentenceTransformer: The loaded model instance
-    """
-    global _model
-
-    if _model is None:
-        print("Loading model for the first time. This may take 1-2 minutes...")
-        _model = SentenceTransformer(MODEL_NAME)
-        print("Model loaded successfully.")
-
-    return _model
-
-def get_tokenizer():
-    """
-    Get the tokenizer from the Sentence Transformer model.
-
-    Returns:
-        Tokenizer: The tokenizer instance
-    """
-    global _tokenizer
-
-    if _tokenizer is None:
-        model = get_model()
-        _tokenizer = model.tokenizer
-
-    return _tokenizer
 
 def count_tokens(text: str) -> int:
     """
-    Count tokens using the Sentence Transformers tokenizer.
+    Count tokens using the tiktoken cl100k_base encoder
+    (matches text-embedding-3-small's tokenizer).
 
     Args:
         text (str): Input text
     Returns:
         int: Number of tokens
     """
-    tokenizer = get_tokenizer()
-    tokens = tokenizer.encode(text, add_special_tokens=True)
-    return len(tokens)
+    return len(_tokenizer.encode(text))
 
 def split_text_for_sentence_transformer(
     content: str,
-    chunk_size: int = 100,
-    overlap: int = 20
+    chunk_size: int = CHUNK_SIZE,
+    overlap: int = CHUNK_OVERLAP
 ) -> list[str]:
     """
-    Split email content into chunks for Sentence Transformers.
+    Split email content into chunks suitable for text-embedding-3-small.
 
     Args:
         content (str): Email content
@@ -77,9 +40,6 @@ def split_text_for_sentence_transformer(
     Returns:
         list[str]: List of text chunks
     """
-    # Ensure model is loaded for count_tokens function
-    get_model()
-
     # Find Subject line
     lines = content.split('\n')
     subject_line = lines[0] if 'Subject:' in lines[0] else ''
@@ -88,7 +48,7 @@ def split_text_for_sentence_transformer(
     body_start = 1 if subject_line else 0
     body_content = '\n'.join(lines[body_start:])
 
-    # Approximate: 100 tokens is roughly 400 characters
+    # Approximate: 1 token ≈ 4 characters (for English; rough guide only)
     chunk_size_chars = chunk_size * 4
     overlap_chars = overlap * 4
 
@@ -122,7 +82,7 @@ def split_text_for_sentence_transformer(
 
 def chunk_emails(formatted_emails: list[dict]) -> list[dict]:
     """
-    Chunk formatted email documents for Sentence Transformers.
+    Chunk formatted email documents for text-embedding-3-small.
 
     Emails that exceed the token limit are split into multiple chunks.
     Each chunk preserves the original metadata and adds chunking information.

@@ -1,136 +1,178 @@
-# Email RAG System
+# MailMind — AI-Powered Gmail Q&A Agent
 
-An intelligent email search and Q&A system built with Retrieval-Augmented Generation (RAG). Ask natural language questions about your emails across multiple Gmail accounts — the system retrieves the most relevant emails and generates a grounded answer.
-
----
-
-## Current Status
-
-### Completed
-
-**Ingestion Pipeline**
-- Gmail API integration supporting multiple accounts
-- HTML → plain text preprocessing
-- Email chunking for long messages
-- Embedding with `paraphrase-multilingual-mpnet-base-v2` (local, multilingual)
-- Vector storage in Pinecone with full metadata (subject, from, date, account, content)
-
-**Query & Answer Pipeline**
-- Query embedding using the same local model
-- Semantic search via Pinecone top-k retrieval
-- Metadata filtering (account, sender, recipient, date)
-- Answer generation via Claude API (streaming supported)
-- Language auto-detection for response (Chinese / English)
-
-**Evaluation**
-- RAGAS v0.4+ evaluation script (`scripts/ragas_evaluation.py`) with ground truth — measures Context Precision, Context Recall, Answer Relevancy, Faithfulness
-- LLM-as-judge evaluation script (`scripts/evaluate_rag.py`) — faster alternative using GPT-4o-mini, runs in under 15 seconds
-- Known limitation: Chinese-language queries produce lower scores due to cross-language embedding mismatch (Chinese query vs. English email content)
-
-### Project Structure
+Ask natural language questions about your personal emails. MailMind ingests emails from multiple Gmail accounts into a Pinecone vector index and answers queries using hybrid retrieval (BM25 + dense vectors) and Claude as the LLM backbone.
 
 ```
-services/
-  gmail_service.py        # Gmail API multi-account fetch
-  email_preprocessor.py  # HTML cleaning, metadata extraction
-  email_chunker.py        # Long email chunking
-  embedding_service.py    # Sentence Transformers embedding
-  pinecone_service.py     # Pinecone upsert and index management
-  ingestion_pipeline.py   # Orchestrates full ingestion flow
-  query_service.py        # Query embedding + Pinecone search
-  claude_service.py       # Answer generation via Claude API
-  rag_service.py          # End-to-end RAG pipeline
-
-scripts/
-  ingest_emails.py        # Run ingestion from CLI
-  search_emails.py        # Raw vector search from CLI
-  ask_emails.py           # Full RAG Q&A from CLI
-  ragas_evaluation.py     # RAGAS evaluation with ground truth
+"Which company's recruiter last contacted me about an internship?"
+"What is the Delta Airlines confirmation number for my March flight?"
+"What was the most recent newsletter I received?"
 ```
 
 ---
 
-## Planned Features
+## How It Works
 
-### 1. Scheduled Auto-Embedding
-Automatically ingest new emails on a schedule so the vector index stays up to date without manual runs.
-- Run ingestion via GitHub Actions cron or a local scheduler
-- Incremental sync: only embed emails newer than the last ingestion timestamp
-- Store last sync time to avoid re-processing old emails
-
-### 2. Slack RAG Chat Interface
-Integrate the RAG pipeline into Slack so it can be used alongside the existing email summary AI agent.
-- Respond to `@mentions` or `/ask` slash commands in a Slack channel
-- Send query to `rag_service.ask()`, return answer + source emails
-- Unified Slack workspace as the single interface for all email AI tools
-
-### 3. LLM Query Expansion
-Before embedding the user query, use an LLM to rewrite and expand it into multiple semantically richer variants. Retrieve results for all variants and merge — improves recall especially for vague or short queries.
-- Generate 3–5 rewritten queries from the original
-- Embed and search all variants in parallel
-- Deduplicate and re-rank results by combined score
-
----
-
-## Recommended Next Steps
-
-**Priority 1 — Fix Chinese query performance**
-Switch the embedding model from `paraphrase-multilingual-mpnet-base-v2` to OpenAI `text-embedding-3-small`. This model handles cross-language retrieval significantly better (Chinese query → English content). Requires re-indexing all emails in Pinecone.
-
-**Priority 2 — Incremental sync script**
-Modify `scripts/ingest_emails.py` to read a last-sync timestamp from a local file or Pinecone metadata, fetch only new emails since that time, and update the timestamp after a successful run. This is a prerequisite for scheduling.
-
-**Priority 3 — Slack bot**
-Set up a Slack app with a slash command (`/ask`) that routes to a FastAPI endpoint, calls `rag_service.ask()`, and posts the answer back. The Slack SDK is already in `requirements.txt`.
-
-**Priority 4 — Query expansion**
-Add an optional pre-retrieval step in `rag_service.ask()` that calls GPT-4o-mini to generate expanded query variants, then merges and deduplicates results before passing to the LLM.
+```
+Gmail API (3 accounts)
+        │
+        ▼
+  Preprocessing          HTML → plain text, metadata extraction
+        │
+        ▼
+    Chunking             RecursiveCharacterTextSplitter, 300-token chunks
+        │
+        ├──► OpenAI text-embedding-3-small   dense vectors (1536-dim)
+        │
+        └──► BM25Encoder                     sparse vectors
+                │
+                ▼
+          Pinecone Index (dotproduct, hybrid)
+                │
+                ▼
+          Query Pipeline
+            ├── Hybrid search  (α=0.5 dense + sparse)
+            ├── Temporal ranking  (auto-detect recency intent → sort / filter)
+            └── Claude claude-sonnet-4-6  → grounded answer
+```
 
 ---
 
-## Additional Ideas
+## Key Design Decisions
 
-- **Re-ranking**: After top-k retrieval, use a cross-encoder (e.g. `cross-encoder/ms-marco-MiniLM-L-6-v2`) to re-score results by relevance to the query. Improves precision with minimal added cost.
-- **Email thread grouping**: Group retrieved results by `thread_id` so the answer draws from a full conversation, not isolated fragments.
-- **Hybrid search**: Combine vector similarity with keyword matching on metadata fields (subject, sender) using Pinecone's metadata filters — useful for queries like "emails from HR about Entegris".
-- **Evaluation dashboard**: Save evaluation results to a CSV after each run and track metric trends over time to measure the impact of each improvement.
-- **Web UI**: A minimal Streamlit or Gradio interface for local use — text input → answer + expandable source emails. Low effort, useful for demos.
+| Decision | Rationale |
+|----------|-----------|
+| **Hybrid search (BM25 + dense)** | BM25 captures exact keyword matches (booking codes, names); dense handles semantic similarity. α=0.5 increased RAGAS Factual CP from 0.806 → 0.972. |
+| **Two-tier temporal detection** | Date-sort and server-side timestamp filter use separate keyword sets. Sort false positives are cheap (reorder only); filter false positives are expensive (exclude documents entirely). Prevents Named Entity queries from being misclassified as recency queries. |
+| **dotproduct metric** | Required for Pinecone hybrid search with sparse vectors; cosine does not support `sparse_values`. |
+| **300-token chunks** | Balances retrieval granularity against context density for `text-embedding-3-small`'s 8192-token limit. |
+| **Incremental ingestion** | Each run checks existing Pinecone IDs before embedding, skipping emails already indexed — avoids redundant API costs on daily runs. |
+
+---
+
+## Evaluation
+
+Evaluated with [RAGAS](https://github.com/explodinggradients/ragas) on a fixed 20-question benchmark covering 6 query types (Factual, Named Entity, Multi-doc, Semantic, Time-based, Non-existent).
+
+| Configuration | Avg RAGAS | Δ vs Baseline |
+|---------------|-----------|---------------|
+| Dense only (baseline) | 0.637 | — |
+| + Hybrid search α=0.5 | 0.676 | +6.1% |
+| + CrossEncoder rerank *(evaluated, not adopted)* | 0.693 | +8.8% |
+| **+ Temporal ranking v2 (production)** | **0.710** | **+11.4%** |
+
+> Full evaluation history including per-category breakdowns and experiment rationale: [`doc/evaluation_history.md`](doc/evaluation_history.md)
 
 ---
 
 ## Tech Stack
 
 | Component | Technology |
-|---|---|
-| Vector DB | Pinecone |
-| Embedding | `paraphrase-multilingual-mpnet-base-v2` (local) |
-| LLM (answers) | Anthropic Claude (claude-sonnet-4-6) |
-| LLM (evaluation) | OpenAI GPT-4o-mini |
-| Email source | Gmail API (3 accounts) |
-| Evaluation | RAGAS v0.4+, custom LLM-as-judge |
-| Slack | slack-sdk |
-| API | FastAPI + uvicorn |
+|-----------|------------|
+| Vector DB | [Pinecone](https://www.pinecone.io/) (serverless, dotproduct) |
+| Embedding | OpenAI `text-embedding-3-small` (1536-dim) |
+| Sparse retrieval | `pinecone-text` BM25Encoder |
+| LLM | Anthropic Claude (`claude-sonnet-4-6`) |
+| Email source | Gmail API (OAuth 2.0, 3 accounts) |
+| Evaluation | RAGAS v0.4+ |
+| Automation | GitHub Actions (daily cron ingestion) |
+
+---
+
+## Project Structure
+
+```
+services/
+  gmail_service.py        # Gmail API multi-account fetch
+  email_preprocessor.py   # HTML cleaning, metadata extraction, timestamp parsing
+  email_chunker.py        # Token-aware chunking (tiktoken cl100k_base)
+  embedding_service.py    # OpenAI embeddings + BM25 sparse vectors
+  pinecone_service.py     # Upsert, hybrid search, deduplication
+  ingestion_pipeline.py   # Orchestrates full ingestion flow
+  query_service.py        # Query embedding + Pinecone hybrid search
+  temporal_service.py     # Temporal intent detection, date sort, recency filter
+  rag_service.py          # End-to-end RAG pipeline
+  claude_service.py       # Answer generation via Claude API (streaming)
+  rerank_service.py       # CrossEncoder reranking (evaluated, disabled by default)
+  sync_time.py            # Last-sync timestamp persistence
+
+scripts/
+  ingest_emails.py        # CLI ingestion runner
+  ask_emails.py           # CLI Q&A interface
+  search_emails.py        # Raw vector search (debug)
+  ragas_evaluation.py     # RAGAS evaluation runner
+  train_bm25.py           # BM25 model training on ingested corpus
+
+.github/workflows/
+  ingest_emails.yml       # Daily cron ingestion via GitHub Actions
+
+doc/
+  evaluation_history.md   # Full RAGAS experiment log (Stage 0–5)
+  evaluation_questions.md # 20-question benchmark with ground truth
+```
 
 ---
 
 ## Setup
 
+### Prerequisites
+
+- Python 3.10+
+- Pinecone account (free Starter tier works)
+- OpenAI API key
+- Anthropic API key
+- Gmail API credentials (one OAuth app per account)
+
+### Installation
+
 ```bash
-# Install dependencies
+git clone <repo-url>
+cd RAG
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-
-# Copy and fill in environment variables
-cp .env.example .env
-
-# Authorize Gmail accounts
-python authorize_accounts.py
-
-# Run ingestion
-python scripts/ingest_emails.py
-
-# Ask a question
-python scripts/ask_emails.py
-
-# Run evaluation
-python scripts/ragas_evaluation.py
 ```
+
+### Environment Variables
+
+```bash
+cp .env.example .env
+# Fill in: OPENAI_API_KEY, ANTHROPIC_API_KEY, PINECONE_API_KEY
+```
+
+### Gmail Authorization
+
+```bash
+# Run once per account — opens browser for OAuth consent
+python authorize_accounts.py
+# Tokens saved to credentials/token_account{1,2,3}.json
+```
+
+### First-time Ingestion
+
+```bash
+# Train BM25 model on a sample corpus first
+python scripts/train_bm25.py
+
+# Ingest emails (incremental by default — safe to re-run)
+python scripts/ingest_emails.py --time-range 365d --max-emails 500
+```
+
+### Ask a Question
+
+```bash
+python scripts/ask_emails.py
+# > What is my JetBlue confirmation code?
+```
+
+### Run Evaluation
+
+```bash
+python scripts/ragas_evaluation.py \
+  --notes "my experiment" \
+  --alpha 0.5 \
+  --no-rerank \
+  --top-k 20
+```
+
+### Automated Daily Ingestion
+
+Push `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `PINECONE_API_KEY`, and Gmail tokens as GitHub Actions secrets. The workflow at `.github/workflows/ingest_emails.yml` runs at 08:00 UTC daily and ingests the past 24 hours of emails incrementally.

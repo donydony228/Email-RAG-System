@@ -4,15 +4,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pinecone import Pinecone
 from pinecone_text.sparse import BM25Encoder
+from openai import OpenAI
 import os
-import sys
-import contextlib
 
 # Load environment variables
 load_dotenv()
 
-MODEL_NAME = "paraphrase-multilingual-mpnet-base-v2"
-INDEX_NAME = "email-rag-search"
+INDEX_NAME = "email-rag-search-v2"
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 index = pc.Index(INDEX_NAME)
 
@@ -25,33 +23,31 @@ if not _BM25_MODEL_PATH.exists():
     )
 bm25 = BM25Encoder().load(str(_BM25_MODEL_PATH))
 
-_model = None  # Lazy-loaded model cache
+_openai_client = None
+
+
+def _get_client() -> OpenAI:
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = OpenAI()
+    return _openai_client
+
 
 def embed_query(query: str) -> list:
     """
-    Embed a query string into a vector representation.
+    Embed a query string using OpenAI text-embedding-3-small.
+
     Args:
         query (str): The query text to be embedded.
     Returns:
-        list: The embedded query as a list of floats.
+        list: The embedded query as a list of 1536 floats.
     """
-    global _model
-    if _model is None:
-        from sentence_transformers import SentenceTransformer
-        with open(os.devnull, 'w') as devnull, \
-             contextlib.redirect_stdout(devnull), \
-             contextlib.redirect_stderr(devnull):
-            _model = SentenceTransformer(MODEL_NAME)
-    model = _model
-
-    queries = model.encode(
-            query,
-            batch_size=32,
-            show_progress_bar=False,
-            convert_to_numpy=True,
-            normalize_embeddings=True  # For cosine similarity
-        ).tolist()
-    return queries
+    client = _get_client()
+    response = client.embeddings.create(
+        input=query,
+        model="text-embedding-3-small"
+    )
+    return response.data[0].embedding
 
 def search(query_text: str, dense_vector: list, top_k: int = 5, filter: dict = None, alpha: float = 0.5) -> dict:
     """

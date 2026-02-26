@@ -9,8 +9,8 @@ import os
 import time
 
 # Configuration
-INDEX_NAME = "email-rag-search"
-DIMENSION = 768
+INDEX_NAME = "email-rag-search-v2"
+DIMENSION = 1536
 METRIC = "dotproduct"  # Required for hybrid search (sparse + dense); cosine does not support sparse_values
 BATCH_SIZE = 100
 
@@ -153,8 +153,8 @@ class PineconeService:
 
         exists_map = {}
 
-        # Pinecone fetch can handle up to 1000 IDs at once
-        batch_size = 1000
+        # Keep batches small to avoid 414 URL-Too-Large from AWS API Gateway
+        batch_size = 100
 
         for i in range(0, len(email_ids), batch_size):
             batch_ids = email_ids[i:i + batch_size]
